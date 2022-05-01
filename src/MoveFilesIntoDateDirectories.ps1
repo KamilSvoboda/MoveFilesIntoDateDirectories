@@ -1,5 +1,5 @@
 #Requires -Version 5.0
-# This script will inspect files from the provided source directory, and move them into a directory based on their LastWriteTime.
+# This script will inspect files from the provided source directory, and move them into a directory based on the date string in their filename (e.g. IMG_20210531_99999.png).
 
 [CmdletBinding()]
 Param
@@ -16,6 +16,12 @@ Param
 	[ValidateNotNullOrEmpty()]
 	[System.IO.DirectoryInfo] $TargetDirectoryPath,
 
+	[Parameter(Mandatory = $false, HelpMessage = 'Date format in the file name (default value "yyyyMMdd")')]
+	[string] $FileNameDateStringFormat = 'yyyyMMdd',
+
+	[Parameter(Mandatory = $false, HelpMessage = 'List of filename prefixes to be ignored, delimited by comma (e.g. "img_", "vid_"), case-insensitive')]	
+	[string[]] $PrefixesToIgnore,
+
 	[Parameter(Mandatory = $false, HelpMessage = 'The scope at which directories should be created. Accepted values include "Hour", "Day", "Month", or "Year". e.g. If you specify "Day" files will be moved from the `SourceDirectoryPath` to `TargetDirectoryPath\yyyy-MM-dd`.')]
 	[ValidateSet('Hour', 'Day', 'Month', 'Year')]
 	[string] $TargetDirectoriesDateScope = 'Day',
@@ -24,35 +30,48 @@ Param
 	[switch] $Force
 )
 
-Process
-{
+Process {	
 	[System.Collections.ArrayList] $filesToMove = Get-ChildItem -Path $SourceDirectoryPath -File -Force -Recurse -Depth $SourceDirectoryDepthToSearch
 
 	$filesToMove | ForEach-Object {
 		[System.IO.FileInfo] $file = $_
 
-		[DateTime] $fileDate = $file.LastWriteTime
-		[string] $dateDirectoryName = Get-FormattedDate -date $fileDate -dateScope $TargetDirectoriesDateScope
-		[string] $dateDirectoryPath = Join-Path -Path $TargetDirectoryPath -ChildPath $dateDirectoryName
+		#Calc start index based on possible prefix in the file name
+		[int] $substringStartIndex = 0	
+		#Check prefixes are not null or empty
+		if ([bool]$PrefixesToIgnore) {
+			$PrefixesToIgnore | ForEach-Object {
+				[string] $prefix = $_.Trim()
+				if ($file.Name.StartsWith($prefix, "CurrentCultureIgnoreCase")) {
+					$substringStartIndex = $prefix.Length					
+				}
+			}
+		}
+						
+		#Ensure filename length is greater than $substringStartIndex + $FileNameDateStringFormat.Length
+		if ($file.Name.Length -ge $substringStartIndex + $FileNameDateStringFormat.Length) {
+			[DateTime] $fileDate = [datetime]::parseexact($file.Name.Substring($substringStartIndex, $FileNameDateStringFormat.Length), $FileNameDateStringFormat, $null)
+			if ([bool]$fileDate) {
+				[string] $dateDirectoryName = Get-FormattedDate -date $fileDate -dateScope $TargetDirectoriesDateScope
+				[string] $dateDirectoryPath = Join-Path -Path $TargetDirectoryPath -ChildPath $dateDirectoryName
 
-		Ensure-DirectoryExists -directoryPath $dateDirectoryPath
+				Ensure-DirectoryExists -directoryPath $dateDirectoryPath
 
-		[string] $filePath = $file.FullName
-		Write-Information "Moving file '$filePath' into directory '$dateDirectoryPath'."
-		Move-Item -Path $filePath -Destination $dateDirectoryPath -Force:$Force
+				[string] $filePath = $file.FullName
+				Write-Information "Moving file '$filePath' into directory '$dateDirectoryPath'."
+				Move-Item -Path $filePath -Destination $dateDirectoryPath -Force:$Force
+			}
+  }
 	}
 }
 
-Begin
-{
+Begin {
 	$InformationPreference = "Continue"
 	$VerbosePreference = "Continue"
 
-	function Get-FormattedDate([DateTime] $date, [string] $dateScope)
-	{
+	function Get-FormattedDate([DateTime] $date, [string] $dateScope) {
 		[string] $formattedDate = [string]::Empty
-		switch ($dateScope)
-		{
+		switch ($dateScope) {
 			'Hour' { $formattedDate = $date.ToString('yyyy-MM-dd-HH') }
 			'Day' { $formattedDate = $date.ToString('yyyy-MM-dd') }
 			'Month' { $formattedDate = $date.ToString('yyyy-MM') }
@@ -62,10 +81,8 @@ Begin
 		return $formattedDate
 	}
 
-	function Ensure-DirectoryExists([string] $directoryPath)
-	{
-		if (!(Test-Path -Path $directoryPath -PathType Container))
-		{
+	function Ensure-DirectoryExists([string] $directoryPath) {
+		if (!(Test-Path -Path $directoryPath -PathType Container)) {
 			Write-Verbose "Creating directory '$directoryPath'."
 			New-Item -Path $directoryPath -ItemType Directory -Force > $null
 		}
@@ -76,8 +93,7 @@ Begin
 	Write-Verbose "Starting script at '$startTime'." -Verbose
 }
 
-End
-{
+End {
 	# Display the time that this script finished running, and how long it took to run.
 	[datetime] $finishTime = Get-Date
 	[timespan] $elapsedTime = $finishTime - $startTime
