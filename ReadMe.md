@@ -36,4 +36,4 @@ The target directory containing the same files after the script ran and moved th
 
 ## Credits
 
-Thanks to [deadlydog] (https://github.com/deadlydog) for the base of the script.
+Thanks to [deadlydog](https://github.com/deadlydog) for the base of the script.
